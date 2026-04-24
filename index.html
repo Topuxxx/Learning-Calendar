@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning Calendar</title>
+
+<style>
+body { font-family: Verdana; font-weight:bold; background:#eef2f7; margin:0; }
+
+/* HEADER BIGGER */
+header {
+  padding:15px;
+  background:#4a6cf7;
+  color:#fff;
+  text-align:center;
+  font-family: Georgia;
+  font-size:28px;
+}
+
+/* CONTROLS */
+#controls { display:flex; gap:10px; padding:10px; justify-content:center; flex-wrap:wrap; }
+
+select, input {
+  padding:8px;
+  border-radius:10px;
+  border:none;
+  box-shadow:0 3px 6px rgba(0,0,0,0.2);
+}
+
+/* MONTH PROGRESS */
+#monthProgressBar {
+  width:90%;
+  margin:10px auto;
+  background:#ddd;
+  border-radius:10px;
+  overflow:hidden;
+}
+#monthProgress {
+  height:18px;
+  width:0%;
+  background:#4caf50;
+  color:#fff;
+  text-align:center;
+  font-size:11px;
+}
+
+/* GRID */
+.calendar {
+  display:grid;
+  grid-template-columns: repeat(7,1fr);
+  gap:10px;
+  padding:10px;
+}
+
+@media (max-width:1024px){ .calendar{grid-template-columns:repeat(4,1fr);} }
+@media (max-width:600px){ .calendar{grid-template-columns:repeat(2,1fr);} }
+@media (max-width:400px){ .calendar{grid-template-columns:1fr;} }
+
+.day {
+  background:#fff;
+  border-radius:15px;
+  padding:8px;
+  min-height:130px;
+  box-shadow:0 6px 12px rgba(0,0,0,0.15);
+}
+
+/* DATE SMALLER */
+.date {
+  background:#4a6cf7;
+  color:#fff;
+  padding:3px 6px;
+  border-radius:6px;
+  font-size:11px;
+  display:inline-block;
+  margin-bottom:5px;
+}
+
+.chips { display:flex; flex-wrap:wrap; gap:5px; }
+
+.chip {
+  padding:4px 8px;
+  border-radius:12px;
+  font-size:10px;
+  display:flex;
+  gap:5px;
+  align-items:center;
+}
+
+.chip.pending { background:#e3f2fd; }
+.chip.complete { background:#c8e6c9; text-decoration:line-through; }
+
+.delete-btn {
+  background:red;
+  color:#fff;
+  border-radius:50%;
+  padding:2px 6px;
+  cursor:pointer;
+}
+
+input { width:100%; margin-top:5px; }
+</style>
+</head>
+
+<body>
+
+<header>📚 Learning Calendar 🎓</header>
+
+<div id="controls">
+<select id="yearSelect"></select>
+<select id="monthSelect"></select>
+</div>
+
+<!-- MONTH PROGRESS -->
+<div id="monthProgressBar">
+  <div id="monthProgress">0%</div>
+</div>
+
+<div class="calendar" id="calendar"></div>
+
+<script>
+const start = new Date('2026-05-01');
+const end = new Date(start);
+end.setFullYear(start.getFullYear()+99);
+
+const calendar = document.getElementById('calendar');
+const yearSelect = document.getElementById('yearSelect');
+const monthSelect = document.getElementById('monthSelect');
+
+let data = JSON.parse(localStorage.getItem('calendarData')||'{}');
+
+function formatDate(d){ return d.toISOString().split('T')[0]; }
+function getDayName(d){ return d.toLocaleDateString('en-US',{weekday:'short'}); }
+
+// Year
+for(let y=start.getFullYear(); y<=end.getFullYear(); y++){
+  let o=document.createElement('option');
+  o.value=y;
+  o.text=y;
+  yearSelect.appendChild(o);
+}
+
+// Month
+for(let m=1;m<=12;m++){
+  let mm=('0'+m).slice(-2);
+  let o=document.createElement('option');
+  o.value=mm;
+  o.text=mm;
+  monthSelect.appendChild(o);
+}
+
+function createCalendar(){
+  calendar.innerHTML='';
+  const prefix = yearSelect.value+'-'+monthSelect.value;
+
+  let d=new Date(start);
+  let total=0, done=0;
+
+  while(d<=end){
+    let key=formatDate(d);
+    if(!key.startsWith(prefix)){ d.setDate(d.getDate()+1); continue; }
+
+    let topics=(data[key]?.topics)||[];
+
+    topics.forEach(t=>{
+      total++;
+      if(t.done) done++;
+    });
+
+    let div=document.createElement('div');
+    div.className='day';
+
+    let chips=topics.map((t,i)=>`
+      <span class="chip ${t.done?'complete':'pending'}">
+        <span onclick="toggle('${key}',${i})">${t.text}</span>
+        <span class="delete-btn" onclick="del('${key}',${i})">✖</span>
+      </span>
+    `).join('');
+
+    div.innerHTML=`
+      <div class="date">${getDayName(d)} ${d.getDate()}</div>
+      <div class="chips">${chips}</div>
+      <input placeholder="Add topic" onkeydown="add(event,'${key}')">
+    `;
+
+    calendar.appendChild(div);
+    d.setDate(d.getDate()+1);
+  }
+
+  updateMonthProgress(total, done);
+}
+
+function updateMonthProgress(total, done){
+  let percent = total ? Math.round((done/total)*100) : 0;
+  let bar = document.getElementById('monthProgress');
+  bar.style.width = percent+'%';
+  bar.innerText = percent+'%';
+}
+
+function add(e,key){
+  if(e.key==='Enter'){
+    let v=e.target.value.trim();
+    if(!v) return;
+
+    data[key]=data[key]||{topics:[]};
+    data[key].topics.push({text:v,done:false});
+
+    applyRule(key,v);
+
+    e.target.value='';
+    save();
+  }
+}
+
+function applyRule(key,val){
+  let base=new Date(key);
+  [3,6].forEach(o=>{
+    let d=new Date(base);
+    d.setDate(d.getDate()+o);
+    if(d<=end){
+      let k=formatDate(d);
+      data[k]=data[k]||{topics:[]};
+      data[k].topics.push({text:val+' (Revise)',done:false});
+    }
+  });
+}
+
+function toggle(key,i){
+  data[key].topics[i].done=!data[key].topics[i].done;
+  save();
+}
+
+function del(key,i){
+  data[key].topics.splice(i,1);
+  save();
+}
+
+function save(){
+  localStorage.setItem('calendarData',JSON.stringify(data));
+  createCalendar();
+}
+
+yearSelect.onchange=createCalendar;
+monthSelect.onchange=createCalendar;
+
+setTimeout(()=>{
+  yearSelect.value=start.getFullYear();
+  monthSelect.value=('0'+(start.getMonth()+1)).slice(-2);
+  createCalendar();
+},0);
+</script>
+
+</body>
+</html>
